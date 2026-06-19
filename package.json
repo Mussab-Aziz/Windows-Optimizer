@@ -1,0 +1,19 @@
+{
+  "name": "os-optimizer",
+  "version": "1.0.0",
+  "description": "Windows Optimization Tool",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "frontend:dev": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run frontend:dev\" \"wait-on http://localhost:3000 && npm start\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^30.0.0",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "sudo-prompt": "^9.2.1"
+  }
+}
