@@ -1,57 +1,187 @@
 # Windows OS Optimization Utility
 
-A full-stack desktop application engineered to perform low-level Windows OS optimizations. It features a modern React-based user interface that communicates securely with a Python backend to modify the Windows Registry, manage power plans, and control system services, utilizing native PowerShell for secure User Account Control (UAC) elevation.
+A modern desktop application that applies low-level Windows performance tweaks through a clean, dark-themed dashboard. Built with **Electron + Next.js** on the frontend and **Python** on the backend, with live system metrics that update in real time so you can compare results directly against Task Manager.
+
+![Dashboard Preview](./preview.png)
+
+---
+
+## ✨ Features
+
+| Tweak | What it does |
+|---|---|
+| **Ultimate Performance** | Unhides and activates the hidden Windows Ultimate Performance power plan (works on Home via clone) |
+| **Disable Telemetry** | Sets `AllowTelemetry = 0` in the Windows Registry via Group Policy path |
+| **Optimize GPU (HAGS)** | Enables Hardware-Accelerated GPU Scheduling (`HwSchMode = 2`) |
+| **Clean System Cache** | Clears `%TEMP%`, Prefetch, Windows Temp, and WSUS download cache |
+| **High Process Priority** | Sets `Win32PrioritySeparation = 0x26` for maximum foreground app responsiveness |
+| **Disable SysMain** | Stops and disables the Superfetch/SysMain service (reduces 100% disk usage) |
+| **Disable Print Spooler** | Stops and disables the background Print Spooler service |
+
+All tweaks are **fully reversible** — toggling a feature off restores the previous system default.
+
+### 📊 Live System Metrics
+The Dashboard shows real-time stats pulled directly from **Windows Performance Counters** (the same source as Task Manager):
+- **CPU Usage %** — `\Processor(_Total)\% Processor Time`
+- **CPU Speed (GHz)** — `MaxClockSpeed × (% Processor Performance / 100)` — shows actual Turbo Boost speed
+- **RAM Used / Free / Total**
+
+---
 
 ## 🏗️ Architecture
 
-1. **Frontend (Next.js / React / Tailwind CSS):** A static-exported Next.js application providing a highly responsive, dark-themed dashboard.
-2. **The Bridge (Electron / Node.js):** The main application wrapper. It securely isolates the frontend web code from the system and uses Inter-Process Communication (IPC) to listen for UI events.
-3. **The Engine (Python):** Standalone backend scripts executing system-level API calls via `ctypes` and `winreg`.
+```
+Windows-Optimizer/
+├── main.js              # Electron main process — IPC bridge + system stats
+├── preload.js           # Context bridge — exposes window.systemAPI to frontend
+├── frontend/            # Next.js (React + TypeScript + Tailwind CSS)
+│   └── app/page.tsx     # Single-page dashboard UI
+└── backend/             # Python scripts (run elevated via PowerShell UAC)
+    ├── ultimate_performance.py
+    ├── registry_tweaker.py
+    ├── hags_enable.py
+    ├── clean_cache.py
+    ├── high_priority.py
+    ├── disable_sysmain.py
+    └── disable_printspooler.py
+```
+
+**How it works:**
+1. The React frontend calls `window.systemAPI.applyTweak(scriptName)` via the Electron context bridge
+2. `main.js` spawns the Python script elevated through `powershell.exe Start-Process -Verb RunAs`, triggering a Windows UAC prompt
+3. The Python script makes the system change using `winreg`, `subprocess`, or `ctypes`
+4. Live metrics are polled every 2.5 seconds via a PowerShell `Get-Counter` encoded command
 
 ---
 
-## ✅ Phase 1 & 2: What We Have Built So Far
+## 📦 Dependencies
 
-### 1. The Core Python Engine (`/backend`)
-* `power_manager.py`: Interfaces with Windows PowerCfg to switch to optimal power profiles.
-* `registry_tweaker.py`: Safely modifies the `DataCollection` registry keys to disable Windows Telemetry.
-* `network_optimizer.py`: Disables Network Throttling for gaming and large file uploads.
-* `restore_telemetry.py`: Failsafe script to restore default Windows diagnostic settings.
+### System Requirements
+- **OS:** Windows 10 / 11 (x64)
+- **Administrator privileges** — required for all tweaks (UAC prompt appears automatically)
 
-### 2. The Bulletproof IPC Bridge (`main.js` & `preload.js`)
-* Established a secure `contextBridge` exposing `window.systemAPI.applyTweak()`.
-* Engineered a native UAC Elevation workaround. Instead of relying on buggy third-party node modules, the bridge uses native PowerShell (`Start-Process -Verb RunAs`) to reliably spawn the Windows Administrator prompt for background processes without triggering Windows Defender silent blocks.
+### Runtime Dependencies
 
-### 3. UI Sandbox (`/frontend`)
-* Initialized Next.js with TypeScript and Tailwind.
-* Built the React state-management loop to track asynchronous script execution and update UI button states (e.g., "Applying..." -> "Applied").
+| Tool | Version | Purpose |
+|---|---|---|
+| [Node.js](https://nodejs.org/) | v18+ | Electron runtime & npm |
+| [Python](https://www.python.org/downloads/) | 3.9+ | Backend tweak scripts |
+| [Git](https://git-scm.com/) | Any | Cloning the repo |
+
+> **Note:** Python must be accessible on your system PATH, or installed at one of the standard paths:
+> `C:\Users\<user>\AppData\Local\Programs\Python\Python3XX\python.exe`  
+> `C:\Python3XX\python.exe`  
+> `python3.exe` / `python.exe` (via PATH)
+
+### Node.js Packages (installed automatically via `npm install`)
+
+**Root (Electron wrapper):**
+| Package | Version | Purpose |
+|---|---|---|
+| `electron` | ^30.0.0 | Desktop app shell |
+| `concurrently` | ^8.2.2 | Run Next.js + Electron together in dev |
+| `wait-on` | ^7.2.0 | Wait for Next.js server before launching Electron |
+
+**Frontend (`/frontend`):**
+| Package | Version | Purpose |
+|---|---|---|
+| `next` | 16.2.9 | React framework with Turbopack |
+| `react` | 19.2.4 | UI library |
+| `react-dom` | 19.2.4 | DOM rendering |
+| `tailwindcss` | ^4 | Utility-first CSS |
+| `typescript` | ^5 | Type safety |
+
+### Python Packages
+The backend scripts use **only Python standard library modules** — no `pip install` required:
+- `winreg` — Windows Registry access
+- `subprocess` — Running `powercfg`, `sc.exe` commands
+- `ctypes` — Windows API / admin privilege checks
+- `os`, `sys`, `re` — Standard utilities
 
 ---
 
-## 🚀 Phase 3: What Needs to Be Built (The UI Overhaul)
+## 🚀 Getting Started
 
-Based on the core design specifications, the UI needs to be completely restructured to match the target analytical dashboard.
+### 1. Clone the repository
+```bash
+git clone https://github.com/your-username/Windows-Optimizer.git
+cd Windows-Optimizer
+```
 
-### 1. Navigation & Layout
-* Implement top-tier tabbed navigation: **DASHBOARD**, **ADVANCED TWEAKS**, **BACKEND CODE GENERATOR**.
-* Upgrade the global layout to a premium dark-mode aesthetic with refined typography and spacing.
+### 2. Install root dependencies (Electron)
+```bash
+npm install
+```
 
-### 2. Dynamic Metric Visualizations
-* **Top Metric Bar:** Add estimated calculations for:
-  * `Est. RAM Freed` (e.g., 425 MB)
-  * `CPU Overhead` (e.g., -35%)
-  * `I/O Efficiency` (e.g., +10%)
-* **Gauge Charts:** Implement visual gauges (using SVGs or a charting library) for real-time or estimated RAM and GPU usage.
+### 3. Install frontend dependencies (Next.js)
+```bash
+cd frontend
+npm install
+cd ..
+```
 
-### 3. Advanced Tweak Controls (New Python Scripts Required)
-Implement UI toggles and corresponding backend Python scripts for the following advanced features:
-* **Workload Profiles:** A dropdown to select profiles (e.g., "Gaming", "Creator", "Office").
-* **Ultimate Performance:** Unhide and enable the hidden Windows Ultimate Performance power plan.
-* **Optimize GPU (HAGS):** Enable Hardware-Accelerated GPU Scheduling via Registry.
-* **Clean System Cache:** A script to safely clear `%temp%`, `prefetch`, and Windows Update caches.
-* **High Process Priority:** Automatically assign high CPU priority to foreground applications.
-* **Service Management Modules:**
-  * **SYSMAIN:** Disable Superfetch/SysMain to reduce 100% disk I/O usage bugs.
-  * **PRINTSPOOLER:** Disable background printer services for dedicated gaming/development rigs.
+### 4. Run in development mode
+```bash
+npm run dev
+```
+This command starts both the Next.js dev server and the Electron window simultaneously. The app will open automatically.
+
+> **First launch tip:** The green **ENGINE CONNECTED** indicator in the top-right confirms the Electron bridge is active and tweaks will actually apply. If it shows **AWAITING ENGINE**, you're viewing the frontend only in a browser.
+
+### 5. Run as standalone Electron app (without Next.js dev server)
+
+If you've already built the frontend:
+```bash
+# Build the frontend first (only needed once or after changes)
+cd frontend && npm run build && cd ..
+
+# Then launch Electron pointing at the built output
+npm start
+```
 
 ---
+
+## ⚙️ How Tweaks Work (Toggle Logic)
+
+Each toggle in the UI maps to a Python script in `/backend`:
+
+| Toggle | Script | Enable arg | Disable arg |
+|---|---|---|---|
+| Ultimate Performance | `ultimate_performance.py` | *(none)* | `disable` |
+| Disable Telemetry | `registry_tweaker.py` | *(none)* | `disable` |
+| Optimize GPU (HAGS) | `hags_enable.py` | *(none)* | `disable` |
+| Clean System Cache | `clean_cache.py` | *(one-shot)* | N/A |
+| High Process Priority | `high_priority.py` | *(none)* | `disable` |
+| Disable SysMain | `disable_sysmain.py` | *(none)* | `disable` |
+| Disable Print Spooler | `disable_printspooler.py` | *(none)* | `disable` |
+
+When you toggle a feature **off**, the UI passes `disable` as a command-line argument to the Python script, which runs the corresponding restore/undo function.
+
+Each script self-elevates via UAC — a Windows security prompt will appear asking for Administrator permission.
+
+---
+
+## 🔒 Security Notes
+
+- No scripts run silently in the background — every elevated action requires explicit UAC approval
+- The Electron `contextBridge` ensures the frontend web code cannot access Node.js APIs directly
+- All registry changes are targeted and reversible; no broad system modifications are made
+- Python scripts use only Windows built-in tools (`powercfg`, `sc.exe`, `winreg`) — no external binaries
+
+---
+
+## 🛠️ Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| "AWAITING ENGINE" shown | Make sure you're running `npm run dev` from the root, not opening the frontend in a browser |
+| Metrics show `—` (dash) | Python or PowerShell is not available — check Python is installed and on PATH |
+| Toggle shows "Action failed or canceled" | You clicked **No** on the UAC prompt — re-toggle and click **Yes** |
+| CPU speed stuck at base clock | Restart the Electron window (`npm start`) to reload the `main.js` stats handler |
+| Python not found | Install Python from [python.org](https://www.python.org/downloads/) and ensure "Add to PATH" is checked during install |
+
+---
+
+## 📄 License
+
+MIT — feel free to fork, modify, and distribute.

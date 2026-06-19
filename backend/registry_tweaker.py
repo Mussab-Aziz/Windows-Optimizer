@@ -20,23 +20,32 @@ def run_as_admin():
     sys.exit()
 
 def disable_telemetry():
-    """Disables Windows Telemetry by creating/modifying a specific Registry Key."""
-    # The exact path in the Windows Registry
+    """Disables Windows Telemetry by setting AllowTelemetry=0 in the Registry."""
     registry_path = r"SOFTWARE\Policies\Microsoft\Windows\DataCollection"
-    
     print("[*] Attempting to disable Windows Telemetry...")
-    
     try:
-        # CreateKey will safely open the folder if it exists, or create it if it doesn't
         key = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, registry_path, 0, winreg.KEY_SET_VALUE)
-        
-        # Set the 'AllowTelemetry' value to 0 (Disabled). It is a REG_DWORD (a number).
         winreg.SetValueEx(key, "AllowTelemetry", 0, winreg.REG_DWORD, 0)
-        
         winreg.CloseKey(key)
         print("[+] Success! Windows Telemetry has been disabled.")
         return True
-        
+    except PermissionError:
+        print("[-] Permission Denied. You must run this as Administrator.")
+        return False
+    except Exception as e:
+        print(f"[-] An unexpected error occurred: {e}")
+        return False
+
+def restore_telemetry():
+    """Re-enables Windows Telemetry by setting AllowTelemetry=1."""
+    registry_path = r"SOFTWARE\Policies\Microsoft\Windows\DataCollection"
+    print("[*] Restoring Windows Telemetry (AllowTelemetry=1)...")
+    try:
+        key = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, registry_path, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, "AllowTelemetry", 0, winreg.REG_DWORD, 1)
+        winreg.CloseKey(key)
+        print("[+] Success! Windows Telemetry has been restored.")
+        return True
     except PermissionError:
         print("[-] Permission Denied. You must run this as Administrator.")
         return False
@@ -45,13 +54,14 @@ def disable_telemetry():
         return False
 
 if __name__ == "__main__":
-    # 1. Require Admin rights
     if not is_admin():
         run_as_admin()
 
-    print("--- Windows Registry Optimizer --- \n")
-    
-    # 2. Execute the tweak
-    disable_telemetry()
-    
-    input("\nPress Enter to exit...")
+    print("--- Windows Registry Optimizer ---\n")
+    action = sys.argv[1].lower() if len(sys.argv) > 1 else "enable"
+    if action == "disable":
+        restore_telemetry()
+    else:
+        disable_telemetry()
+
+    input("\nPress Enter to exit...")

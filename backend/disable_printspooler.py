@@ -45,9 +45,9 @@ if __name__ == "__main__":
     if not is_admin():
         run_as_admin()
 
-    action = sys.argv[1].lower() if len(sys.argv) > 1 else "disable"
+    action = sys.argv[1].lower() if len(sys.argv) > 1 else "enable"
     print(f"--- Print Spooler Service: {action} ---\n")
-    if action == "restore":
+    if action == "disable":
         restore_printspooler()
     else:
         disable_printspooler()

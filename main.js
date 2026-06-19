@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { exec } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 
 let mainWindow;
 
@@ -58,6 +59,87 @@ function findPython() {
     // Fallback: try 'where python' to find it on PATH
     return 'python.exe';
 }
+
+// --- SYSTEM STATS IPC HANDLER ---
+
+// Helper: sample CPU usage over 200ms via os.cpus() (fallback)
+function getCpuUsageFallback() {
+    return new Promise((resolve) => {
+        const cpus1 = os.cpus();
+        setTimeout(() => {
+            const cpus2 = os.cpus();
+            let totalIdle = 0, totalTick = 0;
+            cpus2.forEach((cpu, i) => {
+                const prev = cpus1[i];
+                for (const type in cpu.times) totalTick += cpu.times[type] - prev.times[type];
+                totalIdle += cpu.times.idle - prev.times.idle;
+            });
+            const usage = 100 - Math.floor(100 * totalIdle / totalTick);
+            resolve(Math.max(0, Math.min(100, usage)));
+        }, 300);
+    });
+}
+
+// Helper: read Windows Performance Counters — same formula as Task Manager
+// Task Manager current speed = MaxClockSpeed x (% Processor Performance / 100)
+// % Processor Performance > 100 when Turbo Boost is active.
+// Uses -EncodedCommand (base64 UTF-16LE) to avoid all shell quoting issues.
+function getWindowsPerfCounters() {
+    return new Promise((resolve) => {
+        // Build the PS script as plain lines — verified working via test
+        const lines = [
+            '$maxMHz = (Get-WmiObject Win32_Processor | Select-Object -First 1).MaxClockSpeed',
+            '$perf = (Get-Counter "\\Processor Information(_Total)\\% Processor Performance" -ErrorAction SilentlyContinue).CounterSamples[0].CookedValue',
+            '$load = (Get-Counter "\\Processor(_Total)\\% Processor Time" -ErrorAction SilentlyContinue).CounterSamples[0].CookedValue',
+            'Write-Output ("" + [int]($maxMHz * $perf / 100) + "|" + [int]$load)',
+        ];
+        const script  = lines.join('\n');
+
+        // Encode to UTF-16LE base64 (what PowerShell -EncodedCommand expects)
+        const encoded = Buffer.from(script, 'utf16le').toString('base64');
+
+        exec('powershell.exe -NoProfile -EncodedCommand ' + encoded, { timeout: 5000 }, (error, stdout) => {
+            if (error || !stdout.trim()) { resolve(null); return; }
+            const parts = stdout.trim().split('|');
+            if (parts.length !== 2) { resolve(null); return; }
+            const mhz  = parseInt(parts[0], 10);
+            const load = parseInt(parts[1], 10);
+            if (isNaN(mhz) || isNaN(load)) { resolve(null); return; }
+            resolve({ cpuSpeedMHz: mhz, cpuUsage: Math.max(0, Math.min(100, load)) });
+        });
+    });
+}
+
+ipcMain.handle('get-system-stats', async () => {
+    const cpus = os.cpus();
+    const baseCpuSpeedMHz = cpus.length > 0 ? cpus[0].speed : 0;
+    const cpuModel = cpus.length > 0 ? cpus[0].model : 'Unknown';
+    const cpuCount = cpus.length;
+
+    const totalRam = os.totalmem();
+    const freeRam  = os.freemem();
+    const usedRam  = totalRam - freeRam;
+
+    // Try Windows perf counters first; fall back to os.cpus() sampling
+    const [perfCounters, fallbackUsage] = await Promise.all([
+        getWindowsPerfCounters(),
+        getCpuUsageFallback(),
+    ]);
+
+    const cpuSpeedMHz = perfCounters?.cpuSpeedMHz ?? baseCpuSpeedMHz;
+    const cpuUsage    = perfCounters?.cpuUsage    ?? fallbackUsage;
+
+    return {
+        cpuSpeedMHz,
+        cpuModel,
+        cpuCount,
+        cpuUsage,
+        totalRamGB: (totalRam / 1073741824).toFixed(1),
+        usedRamGB:  (usedRam  / 1073741824).toFixed(2),
+        freeRamGB:  (freeRam  / 1073741824).toFixed(2),
+        ramUsedPct: Math.round((usedRam / totalRam) * 100),
+    };
+});
 
 // --- THE PYTHON BRIDGE ---
 
@@ -128,9 +210,11 @@ ipcMain.handle('apply-tweak-with-args', async (event, scriptName, args) => {
         console.log(`[Bridge] Script path: ${scriptPath}`);
         console.log(`[Bridge] Python: ${pythonExecutable}`);
 
-        // Pass the argument to the Python script as a second command-line argument
+        // Pass the argument to the Python script as a second command-line argument.
+        // IMPORTANT: PowerShell -ArgumentList requires comma-separated values (array syntax),
+        // NOT space-separated — a space between two quoted strings is ambiguous to PS binder.
         const psCmd = 
-            `powershell.exe -NoProfile -Command "Start-Process -FilePath '${pythonExecutable}' -ArgumentList '${scriptPath}' '${args}' -Wait -WindowStyle Normal"`;
+            `powershell.exe -NoProfile -Command "Start-Process -FilePath '${pythonExecutable}' -ArgumentList '${scriptPath}','${args}' -Wait -WindowStyle Normal"`;
 
         console.log(`[Bridge] Executing: ${psCmd}`);
 
